@@ -1,0 +1,451 @@
+---
+title: "SA1_DATA MINING & DATA WRANGLING"
+author: "QUINTERO"
+date: "`r Sys.Date()`"
+output: github_document
+---
+
+### Setup and Load Libraries
+
+
+```{r}
+library(tidyverse)  # For data manipulation and visualization
+library(caret)      # For machine learning
+library(glmnet)     # For ridge and lasso regression
+library(ggplot2)    # For data visualization
+library(rpart)      # For decision tree modeling
+library(randomForest)  # For Random Forest classifier
+library(e1071)      # For SVM and other ML models
+library(gridExtra)  # For arranging multiple plots
+library(pROC)       # For ROC curves
+library(psych)      # For PCA
+```
+
+
+## UNIT 1: R for Data Mining
+
+
+### Intro to Modern Data Mining
+
+
+##### Load the dataset and provide an overview of its structure (e.g., dimensions, missing values, types of variables). 
+
+
+```{r}
+data <- read.csv("C:/Users/sbcvj/Downloads/customer_churn.csv")
+head(data)
+```
+
+```{r}
+str(data) # structure
+```
+
+```{r}
+sum(is.na(data)) # checking the missing values
+```
+
+```{r}
+dim(data) # dimensions
+```
+
+```{r}
+summary(data) #summary
+```
+
+
+### Explain why data mining is important for this dataset.
+
+
+##### Data mining is important in this dataset prediction especially for taking proactive measures and helps businesses to maintain their customers by identifying what we called at-risk customers.
+
+
+### Data Visualization
+
+
+```{r, fig.path='figures/', fig.width=6, fig.height=4}
+ggplot(data, aes(x = Tenure, fill = Churn)) + 
+  geom_histogram(binwidth = 5, position = "dodge") + 
+  theme_minimal() + 
+  ggtitle("Distribution of Churn by Tenure")
+```
+
+
+##### This plot illustrates how churn varies by customer tenure.
+
+
+```{r, fig.path='figures/', fig.width=6, fig.height=4}
+ggplot(data, aes(x = MonthlyCharges, y = TotalCharges, color = Churn)) + 
+  geom_point(alpha = 0.5) + 
+  theme_minimal() + 
+  ggtitle("Monthly vs. Total Charges by Churn")
+```
+
+
+##### This second plot, visualizes the relationship between MonthlyCharges and TotalCharges. We can see in the plot, that customers with lower MonthlyCharges have low TotalCharges, and customers who have higher MonthlyCharges and TotalCharges are most likely to churn or leave.
+
+
+```{r, fig.path='figures/', fig.width=6, fig.height=4}
+ggplot(data, aes(x = Contract, fill = Churn)) + 
+  geom_bar(position = "dodge") +  
+  theme_minimal() + 
+  ggtitle("Churn Count by Contract Type")
+
+```
+
+
+##### In this plot, we can see that there are more customers in month-to-month contract, than having a contract with one year and two year. We can also see that there are more customers who are not leaving in the month-to-month contract. However, month-to-month contract has also the biggest count when it comes to customers leaving. Having said, one year and two year contract has almost the same count when it comes to churn.
+
+
+### Data Transformation
+
+
+### Handle missing values appropriately
+
+
+```{r}
+data <- na.omit(data)
+```
+
+
+### Convert categorical variables into factor variables.
+
+
+```{r}
+data$Churn <- as.factor(data$Churn)
+data$Contract <- as.factor(data$Contract)
+```
+
+
+### Normalize or standardize numerical features where necessary.
+
+
+```{r}
+data <- data %>% mutate(across(where(is.numeric), scale))
+```
+
+
+### 4. Data Wrangling
+
+
+### Filter data to remove outliers
+
+
+```{r}
+library(dplyr)
+
+quantiles <- quantile(data$MonthlyCharges, probs = c(0.01, 0.99), na.rm = TRUE)
+
+data <- data %>% 
+  filter(MonthlyCharges > quantiles[[1]] & MonthlyCharges < quantiles[[2]])
+
+```
+
+
+### Create new derived variables that may help in predictive modeling.
+
+
+```{r}
+data <- data %>%
+  mutate(
+    AvgMonthlySpend = TotalCharges / Tenure,  # Average monthly spend per customer
+    HasMultipleServices = ifelse(InternetService != "No" & PhoneService == "Yes", 1, 0),  # Flag for multiple services
+    LongTermCustomer = ifelse(Tenure > 24, 1, 0)  # Customers who stayed longer than 2 years
+  )
+```
+
+
+### Aggregate or summarize data if necessary
+
+
+```{r}
+data %>%
+  group_by(Contract) %>%
+  summarise(
+    AvgMonthlyCharges = mean(MonthlyCharges, na.rm = TRUE),
+    ChurnRate = mean(as.numeric(Churn == "Yes"), na.rm = TRUE),
+    Count = n()
+  )
+```
+
+
+### Review
+
+
+### Summarize key takeaways from the exploratory data analysis process
+
+
+##### Loading the dataset gives us 10,000 rows and gives us some variables. We can also see, in the plot that the count between the churn and no churn is imbalanced meaning we need to double check if the rows are having missing variables. To do this, we need to do data transformation and wrangling, as we remove some missing values and outliers. And by doing these steps, it gave us a result of having total of 9727 rows as of now.
+
+
+### Unit 2: Tuning Predictive Models
+
+```{r}
+data$Churn <- factor(data$Churn, levels = c("No", "Yes"))
+
+set.seed(42)
+train_index <- createDataPartition(data$Churn, p = 0.8, list = FALSE)
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+
+train_data$Churn <- factor(train_data$Churn, levels = c("No", "Yes"))
+test_data$Churn <- factor(test_data$Churn, levels = c("No", "Yes"))
+
+train_data$TotalCharges[is.na(train_data$TotalCharges)] <- median(train_data$TotalCharges, na.rm = TRUE)
+
+```
+
+
+```{r}
+log_model_churn <- glm(Churn ~ Tenure + MonthlyCharges + TotalCharges + Gender + Partner + Dependents + PhoneService + InternetService + Contract, data = train_data, family = binomial)
+
+summary(log_model_churn)
+
+```
+
+```{r decision tree}
+train_data$TotalCharges[is.na(train_data$TotalCharges)] <- median(train_data$TotalCharges, na.rm = TRUE)
+
+decision_tree_churn <- rpart(Churn ~ Tenure + MonthlyCharges + TotalCharges + Gender + Partner + Dependents + PhoneService + InternetService + Contract, data = train_data, method = "class", control = rpart.control(cp = 0, maxdepth = 5))
+
+summary(decision_tree_churn)
+```
+
+```{r decision tree 2}
+library(rpart.plot)  # Load the package
+
+rpart.plot(decision_tree_churn, type = 3, extra = 101, tweak = 1.2, box.palette = "auto")
+
+```
+
+
+##### According to the structure, the best indicators of churn are contract type and monthly charges. Other factors also come into play, such as InternetService and TotalCharges.However, according to the logistic regression, contract type is the most significant predictor of churn, with other variables having less of an effect. And, Decision Trees are more adaptable when compared to other complexities, although they may overfit deeper structures. Although more stable, Logistic Regression may overlook intricate patterns.
+
+
+### Bias-Variance Trade-Off
+
+
+##### The complexity of the logistic regression model has low (linear) compared to decision tree that has many splits and deep structure. Having this, I realized that decision tree may be good in complex relationships but the model is prone to overfitting while logistic regression model is stable but it would may be underfit if the model is not linear. Aside from their complexity, the trade-off in decision tree are having low bias while the logistic regression model has high bias. And when it comes to variance, Decision tree model has high variance meaning it can be overfitting. While the logistic regression model is more stable.
+
+
+### Cross-Validation
+
+
+```{r}
+control <- trainControl(method = "cv", number = 10)
+
+logit_cv <- train(Churn ~ Tenure + MonthlyCharges + TotalCharges + InternetService + Contract, data = train_data,
+                  method = "glm",
+                  family = binomial, 
+                  trControl = control)
+
+print(logit_cv)
+```
+
+
+### Decision Tree with 10-Fold Cross-Validation
+
+
+```{r dt with 10 fold cv}
+test_data$Churn <- factor(test_data$Churn, levels = c("No", "Yes"))
+
+dt_cv <- train(Churn ~ Tenure + MonthlyCharges + TotalCharges + InternetService + Contract, data = train_data,
+                  method = "rpart",
+                  trControl = control,
+               tuneGrid = expand.grid(cp = c(0.01, 0.005, 0.001, 0.0005)))
+
+print(dt_cv)
+```
+
+
+##### Computing the prediction on test data
+
+
+```{r}
+
+log_model <- log_model_churn
+logit_prob <- predict(log_model, test_data, type = "response")
+logit_pred <- ifelse(logit_prob > 0.4, "Yes", "No")  # Changed from 0.5
+logit_pred <- factor(logit_pred, levels = c("No", "Yes"))
+
+dt_prob <- predict(dt_cv, test_data, type = "prob")[,2] 
+dt_pred <- ifelse(dt_prob > 0.5, "Yes", "No")  # Change from 0.3 to 0.5
+dt_pred <- factor(dt_pred, levels = c("No", "Yes"))
+
+```
+
+
+### Computing the matrices
+
+
+```{r}
+logit_cm <- confusionMatrix(logit_pred, test_data$Churn, positive = "Yes")
+dt_cm <- confusionMatrix(dt_pred, test_data$Churn, positive = "Yes")
+
+print(logit_cm)
+print(dt_cm)
+```
+
+
+### Report and interpret accuracy, precision, recall, and F1-score
+
+
+```{r}
+
+extract_metrics <- function(cm) {
+  accuracy <- cm$overall["Accuracy"]
+  precision <- cm$byClass["Precision"]
+  recall <- cm$byClass["Recall"]
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  
+  return(data.frame(Accuracy = accuracy, Precision = precision, Recall = recall, F1_Score = f1_score))
+}
+
+
+logit_metrics <- extract_metrics(logit_cm)
+dt_metrics <- extract_metrics(dt_cm)
+
+print(logit_metrics)
+print(dt_metrics)
+```
+
+
+##### The accuracy is the overall correctness of our prediction, here we got 72.9% accuracy in our test.
+
+
+### Classification
+
+
+### Train a Random Forest classifier to predict customer churn & Tuning  hyperparameters using grid search
+
+
+```{r}
+
+set.seed(42)
+rf_model <- randomForest(Churn ~ ., data = train_data, ntree = 100, mtry = 3, importance = TRUE)
+
+print(rf_model)
+
+```
+
+
+```{r}
+rf_pred <- predict(rf_model, test_data)
+
+```
+
+
+### Report final model performance.
+
+
+```{r}
+rf_cm <- confusionMatrix(rf_pred, test_data$Churn, positive = "Yes")
+print(rf_cm)
+```
+
+##### The final Evaluation model gave us the same result when it comes to the accuracy of our test, meaning that we correctly classifies the customers. The specificity is high (99.51%), showing it effectively identifies non-churners. The Kappa score (0.0065) suggests the model performs only slightly better than random guessing. So, we can realize that in our test, it focuses more in customer retention.
+
+```{r, fig.path='figures/', fig.width=6, fig.height=4}
+varImpPlot(rf_model)
+
+```
+
+
+### UNIT 3: Regression-Based Methods
+
+
+### Logistic Regression
+
+
+### Fit a logistic regression model using Churn as the dependent variable and Tenure, MonthlyCharges, and TotalCharges as independent variables.
+
+```{r}
+data$Churn <- as.factor(data$Churn)
+
+logit_model <- glm(Churn ~ Tenure + MonthlyCharges + TotalCharges, data = data, family = binomial)
+
+summary(logit_model)
+```
+
+
+##### The Logistic Regression model predicts the churn of the customers based on Tenure, MonthlyCharges, and TotalCharges. But as we can see, the variables are not really significant as their p-value > 0.05, indicating that they do not have huge impact to the churn. And for the estimation, we can see that tenure is the only positive coefficients, this indicates that longer tenure will increase the churn of a customer. While, MonthlyCharges and TotalCharges is a negative coefficients, indicating that it affects the decreasing of the churn.
+
+
+### Regression in High Dimensions
+
+
+### Discuss the challenges of high-dimensional regression and potential solutions
+
+
+###### high-dimensional regression poses a challenges such as overfitting, complexity in computations, and issues in the interpretation as it could be misleading. However, there are potential solutions to overcome this, such as PCA, Lasso, and ridge and etc who includes regularization technique.
+
+
+### Apply Principal Component Analysis (PCA) on numerical features (Tenure, MonthlyCharges, TotalCharges) to reduce dimensionality.
+
+
+```{r, fig.path='figures/', fig.width=6, fig.height=4}
+num_features <- data %>% select(Tenure, MonthlyCharges, TotalCharges) %>% scale()
+pca_result <- prcomp(num_features, center = TRUE, scale. = TRUE)
+plot(pca_result, type = "l")
+summary(pca_result)
+
+```
+
+
+##### The first PC, indicates the most variance, the second PC indicates the moderate, and PC3 indicates the least variance. As we can see, PC has a shard drop from PC1 to PC3. It means that the dataset can be captured through the first component or the first two components. The PCA helps us in dimensionality while retaining meaningful variance.
+
+
+### Ridge Regression
+
+
+```{r}
+library(glmnet)
+
+x <- model.matrix(Churn ~ Tenure + MonthlyCharges + TotalCharges, data)[, -1]
+y <- data$Churn
+
+cv_ridge <- cv.glmnet(x, y, alpha = 0, family = "binomial")
+
+best_lambda_ridge <- cv_ridge$lambda.min
+
+ridge_model <- glmnet(x, y, alpha = 0, lambda = best_lambda_ridge, family = "binomial")
+
+coef(ridge_model)
+
+
+```
+
+
+### Implement Lasso Regression with the same feature set as Ridge Regression.
+
+
+```{r}
+# Perform Lasso regression with cross-validation
+cv_lasso <- cv.glmnet(x, y, alpha = 1, family = "binomial")
+
+# Best lambda
+best_lambda_lasso <- cv_lasso$lambda.min
+
+# Fit Lasso model
+lasso_model <- glmnet(x, y, alpha = 1, lambda = best_lambda_lasso, family = "binomial")
+
+# Display coefficients
+coef(lasso_model)
+
+
+
+```
+
+
+### Discuss feature selection benefits and interpret the coefficients.
+
+##### In Lasso, as we consider in the result we got, i think the benefits of this feature was that it automatically removes irrelevant variable, that can help the model to be more interpretable.
+
+##### In Ridge, it works well when predictors are highlight correlated. And it can also shrink large coefficients that makes the model more stable. 
+
+##### In Ridge coefficients, the intercept (-9.878060e-01) is the baseline prediction for all independent variables are zero, the Tenure (7.843177e-04) gaves us a positive integer, meaning when the tenure is increasing, the probability of churn could be increase also. MonthlyCharges (-9.919896e-04) and TotalCharges(-1.057637e-05) indicates that when MonthlyCharges and TotalCharges increasing, the probability of the churn could be decreasing.
+
+##### In Lasso coefficients, just like in ridge, the intercept (-0.9878079) is the baseline prediction for all independent variables are zero. But in here, we can see the benefits of the Lasso as it only selects the important features by setting some coefficients to zero just like what Lasso did in Tenure (0.0000000). MonthlyCharges and TotalCharges got dropped by Lasso.
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
